@@ -1,6 +1,6 @@
-face recognition mycroft skill
+face# face recognition mycroft skill
 
-very early work, using obama pic instead of webcam pic
+veryearly work, using obama pic instead of webcam pic, works well with [server](https://github.com/JarbasAI/JarbasAI/tree/patch-13/)
 
 add persons to known faces folder, name of picture is person name
 
