@@ -56,10 +56,14 @@ class FaceRecService(MycroftSkill):
                 self.log.info("match found, unknown image is " + result)
                 break
 
-        self.speak(result)
+        if user_id.split(":")[1].isdigit():
+            # send result to source
+            self.emitter.emit(Message("message_request",
+                                      {"user_id": user_id, "data": {"result": result}, "type": "face_recognition_result"}))
+        # emit result to internal bus
+        self.emitter.emit(Message("face_recognition_result",
+                                  {"result": result}))
 
-        self.emitter.emit(Message("message_request",
-                                  {"user_id": user_id, "data": {"result": result}, "type": "face_recognition_result"}))
 
     def stop(self):
         pass
