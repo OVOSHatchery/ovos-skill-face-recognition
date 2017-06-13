@@ -11,3 +11,4 @@ add persons to known faces folder, name of picture is person name
         2017-06-13 16:17:27,916 - FaceRecogSkill - INFO - comparing to person obama.jpg
         2017-06-13 16:17:27,929 - FaceRecogSkill - INFO - match found, unknown image is obama
         2017-06-13 16:17:27,936 - Skills - DEBUG - {"type": "speak", "data": {"target": "cli:35164", "mute": false, "expect_response": false, "more": false, "utterance": "obama", "metadata": {"source_skill": "FaceRecogSkill"}}, "context": null}
+        2017-06-13 16:17:28,103 - Skills - DEBUG - {"type": "face_recognition_result", "data": {"target": "cli:35164", "result": "obama"}, "context": null}

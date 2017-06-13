@@ -59,10 +59,10 @@ class FaceRecService(MycroftSkill):
         if user_id.split(":")[1].isdigit():
             # send result to source
             self.emitter.emit(Message("message_request",
-                                      {"user_id": user_id, "data": {"result": result}, "type": "face_recognition_result"}))
+                                      {"user_id": user_id, "data": {"result": result, "target":user_id}, "type": "face_recognition_result"}))
         # emit result to internal bus
         self.emitter.emit(Message("face_recognition_result",
-                                  {"result": result}))
+                                  {"result": result, "target": user_id}))
 
 
     def stop(self):
