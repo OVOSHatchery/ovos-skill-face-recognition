@@ -13,8 +13,6 @@ class FaceRecService(MycroftSkill):
     def __init__(self):
         super(FaceRecService, self).__init__(name="FaceRecogSkill")
         self.reload_skill = False
-        from time import sleep
-        sleep(60)
         self.known_faces = {}
         # load known faces
         faces = os.listdir(os.path.dirname(__file__) + "/known faces")
@@ -45,11 +43,15 @@ class FaceRecService(MycroftSkill):
         # read unknown image
         self.log.info("loading unknown image")
         unknown_image = face_recognition.load_image_file(face)
+        self.log.info("getting face encodings of unknown image")
+        encoding = face_recognition.face_encodings(unknown_image)[0]
         # results is an array of True/False telling if the unknown face matched anyone in the known_faces array
-        for person in self.known_faces:
+        for person in self.known_faces.keys():
             self.log.info("comparing to person " + person)
             # check if unknown person is this face, by comparing face encodings
-            if face_recognition.compare_faces(self.known_faces[person], face_recognition.face_encodings(unknown_image)[0]):
+            match = face_recognition.compare_faces([self.known_faces[person]], encoding)
+            print match
+            if match:
                 result = person.replace(".jpg", "")
                 self.log.info("match found, unknown image is " + result)
                 break
