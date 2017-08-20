@@ -1,17 +1,15 @@
 import face_recognition
 import os
-from adapt.intent import IntentBuilder
 from mycroft.skills.core import MycroftSkill
 from mycroft.messagebus.message import Message
-
 
 __author__ = 'jarbas'
 
 
-class FaceRecService(MycroftSkill):
+class FaceRecognitionSkill(MycroftSkill):
 
     def __init__(self):
-        super(FaceRecService, self).__init__(name="FaceRecogSkill")
+        super(FaceRecognitionSkill, self).__init__()
         self.reload_skill = False
         self.known_faces = {}
         # load known faces
@@ -25,49 +23,63 @@ class FaceRecService(MycroftSkill):
             self.known_faces[face] = face_recognition.face_encodings(face_recognition.load_image_file(os.path.dirname(__file__) + "/known faces/" + face))[0]
 
     def initialize(self):
-        self.emitter.on("face_recognition_request", self.handle_recog)
+        self.emitter.on("face.recognition.request", self.handle_recog)
+        # TODO test face recog intent
 
     def handle_recog(self, message):
+        if message.context is not None:
+            self.message_context.update(message.context)
         face = message.data.get("file")
-        user_id = message.data.get("source")
-        self.log.info(user_id + " request facerecog for " + face)
-        if user_id is not None:
-            if user_id == "unknown":
-                user_id = "all"
-            self.target = user_id
-        else:
-            self.log.warning("no user/target specified")
-            user_id = "all"
+        if face is None:
+            self.log.error("no file!")
+            face = "missing file"
 
-        result = None
+        result = "unknown person"
         # read unknown image
         self.log.info("loading unknown image")
-        unknown_image = face_recognition.load_image_file(face)
+        try:
+            unknown_image = face_recognition.load_image_file(face)
+        except:
+            self.log.error("loading file failed")
         self.log.info("getting face encodings of unknown image")
-        encoding = face_recognition.face_encodings(unknown_image)[0]
-        # results is an array of True/False telling if the unknown face matched anyone in the known_faces array
-        for person in self.known_faces.keys():
-            self.log.info("comparing to person " + person)
-            # check if unknown person is this face, by comparing face encodings
-            match = face_recognition.compare_faces([self.known_faces[person]], encoding)
-            print match
-            if match:
-                result = person.replace(".jpg", "")
-                self.log.info("match found, unknown image is " + result)
-                break
+        try:
+            encoding = face_recognition.face_encodings(unknown_image)[0]
+            for person in self.known_faces.keys():
+                self.log.info("comparing to person " + person)
+                # check if unknown person is this face, by comparing face encodings
+                match = face_recognition.compare_faces([self.known_faces[person]], encoding)
+                # match is an array of True/False telling if the unknown face matched anyone in the known_faces array
+                if match[0]:
+                    result = person[:person.find(".", -1)]
+                    self.log.info("match found, unknown image is " + result)
+                    break
+        except:
+            self.log.error("no face detected in provided image")
 
-        if user_id.split(":")[1].isdigit():
-            # send result to source
-            self.emitter.emit(Message("message_request",
-                                      {"user_id": user_id, "data": {"result": result, "target":user_id}, "type": "face_recognition_result"}))
-        # emit result to internal bus
-        self.emitter.emit(Message("face_recognition_result",
-                                  {"result": result, "target": user_id}))
+        try:
+            # server message context, safe to ignore
+            self.message_context=self.get_message_context(message.context)
+            user_id = self.message_context.get("destinatary", "")
+            if ":" in user_id:
+                if user_id.split(":")[1].isdigit():
+                    self.emitter.emit(Message("message_request",
+                                              {"context": self.message_context,
+                                               "data": {"result": result},
+                                               "type": "face.recognition.result"},
+                                              self.message_context))
 
+        except:
+            self.message_context = message.context
 
+        self.emitter.emit(Message("face.recognition.result",
+                                  {"result": result}, self.message_context))
+
+    def handle_test_face_recognition(self, message):
+        pass
+    
     def stop(self):
         pass
 
 
 def create_skill():
-    return FaceRecService()
+    return FaceRecognitionSkill()
