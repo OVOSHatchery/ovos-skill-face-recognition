@@ -1,73 +1,139 @@
 import face_recognition
-import os
+from os import remove
+from os.path import join, dirname
 from adapt.intent import IntentBuilder
-from mycroft.skills.core import MycroftSkill
+from mycroft.skills.core import MycroftSkill, intent_handler
 from mycroft.messagebus.message import Message
-
+from mycroft.util.log import LOG
+import pickle
+from shared_camera import Camera
 
 __author__ = 'jarbas'
 
 
-class FaceRecService(MycroftSkill):
+class FaceRecognition(MycroftSkill):
 
     def __init__(self):
-        super(FaceRecService, self).__init__(name="FaceRecogSkill")
+        super(FaceRecognition, self).__init__(name="FaceRecogSkill")
         self.reload_skill = False
+        # TODO use other dir and allow reload
         self.known_faces = {}
-        # load known faces
-        faces = os.listdir(os.path.dirname(__file__) + "/known faces")
-        # Load the jpg files into numpy arrays
-        for face in faces:
-            # Get the face encodings for each face in each image file
-            # Since there could be more than one face in each image, it returns a list of encordings.
-            # But since i assume each image only has one face, I only care about the first encoding in each image, so I grab index 0.
-            self.log.info("loading face encodings for " + face)
-            self.known_faces[face] = face_recognition.face_encodings(face_recognition.load_image_file(os.path.dirname(__file__) + "/known faces/" + face))[0]
+        # TODO use skill settings
+        self.model = join(dirname(dirname(__file__)), "encodings.fr")
+        self.sensitivity = 0.5
+        self.load_encodings()
+        LOG.info("Local Face recognition engine started")
+        self.camera = Camera()
 
     def initialize(self):
-        self.emitter.on("face_recognition_request", self.handle_recog)
+        self.add_event("face_recognition_request", self.handle_recognition_request)
 
-    def handle_recog(self, message):
-        face = message.data.get("file")
-        user_id = message.data.get("source")
-        self.log.info(user_id + " request facerecog for " + face)
-        if user_id is not None:
-            if user_id == "unknown":
-                user_id = "all"
-            self.target = user_id
+    def get_encodings(self, picture_path):
+        # Load the image file
+        img = face_recognition.load_image_file(picture_path)
+        # Get face encodings for any faces in the uploaded image
+        encodings = face_recognition.face_encodings(img)
+        if len(encodings):
+            return encodings[0]
         else:
-            self.log.warning("no user/target specified")
-            user_id = "all"
+            return None
 
-        result = None
-        # read unknown image
-        self.log.info("loading unknown image")
-        unknown_image = face_recognition.load_image_file(face)
-        self.log.info("getting face encodings of unknown image")
-        encoding = face_recognition.face_encodings(unknown_image)[0]
-        # results is an array of True/False telling if the unknown face matched anyone in the known_faces array
-        for person in self.known_faces.keys():
-            self.log.info("comparing to person " + person)
-            # check if unknown person is this face, by comparing face encodings
-            match = face_recognition.compare_faces([self.known_faces[person]], encoding)
-            print match
-            if match:
-                result = person.replace(".jpg", "")
-                self.log.info("match found, unknown image is " + result)
-                break
+    def recognize_encodings(self, picture_path, known_encodings=None):
+        known_encodings = known_encodings or self.known_faces
+        # Load the uploaded image file
+        img = face_recognition.load_image_file(picture_path)
+        # Get face encodings for any faces in the uploaded image
+        unknown_face_encodings = face_recognition.face_encodings(img)
 
-        if user_id.split(":")[1].isdigit():
-            # send result to source
-            self.emitter.emit(Message("message_request",
-                                      {"user_id": user_id, "data": {"result": result, "target":user_id}, "type": "face_recognition_result"}))
+        face_found = False
+        recognized = False
+        person = "None"
+        predictions = {}
+        top_score = 0
+        if len(unknown_face_encodings) > 0:
+            face_found = True
+            if len(known_encodings.keys()):
+                known_enc = [known_encodings[enc] for enc in known_encodings]
+                # See if the first face in the image matches the known face
+                face_distances = face_recognition.face_distance(
+                    known_enc, unknown_face_encodings[0])
+                person = "unknown"
+                for i, face_distance in enumerate(face_distances):
+                    name = known_encodings.keys()[i]
+                    score = 1 - face_distance
+                    if top_score < score:
+                        top_score = score
+                        if score > self.sensitivity:
+                            person = name
+                            recognized = True
+                    predictions[name] = score
+
+        # Return the result as json
+        result = {
+            "face_found_in_image": face_found,
+            "recognized": recognized,
+            "person": person,
+            "score": top_score,
+            "predictions": predictions
+        }
+        if not len(known_encodings.keys()):
+            result["error"] = "no known users available"
+        return result
+
+    def load_encodings(self):
+        try:
+            with open(self.model, "r") as f:
+                self.known_faces = pickle.load(f)
+        except Exception as e:
+            LOG.warning(e)
+
+    def train_user(self, user, picture_path):
+        if user in self.known_faces.keys():
+            res = {"success": True,
+                   "warning": "user already registered",
+                   "user": user}
+        else:
+            res = {"success": True,
+                   "user": user}
+            try:
+                self.known_faces[user] = self.get_encodings(picture_path)
+                with open(self.model, "w") as f:
+                    pickle.dump(self.known_faces, f)
+            except Exception as e:
+                res = {"success": False,
+                       "error": "could not save face encodings",
+                       "exception": str(e)}
+        remove(picture_path)
+        return res
+
+    def handle_recognition_request(self, message):
+        face = message.data.get("file")
+        result = self.recognize_encodings(face)
         # emit result to internal bus
         self.emitter.emit(Message("face_recognition_result",
-                                  {"result": result, "target": user_id}))
+                                  {"result": result}))
 
-
-    def stop(self):
-        pass
+    @intent_handler(IntentBuilder("recognize_face")
+                    .require("recognize_my_face.voc"))
+    def handle_recognize_my_face(self, message):
+        frame = self.camera.get()
+        if frame is None:
+            self.speak_dialog("camera.error")
+        else:
+            # TODO use filesystem access instead
+            pic = join(dirname(__file__), "tmp.jpg")
+            with open(pic, "wb") as f:
+                f.write(frame)
+            result = self.recognize_encodings(pic)
+            if not result["face_found_in_image"]:
+                self.speak_dialog("face.error")
+            elif not result["recognized"]:
+                person = self.get_response("who_are_you")
+                if person:
+                    self.train_user(person, pic)
+            else:
+                self.speak(result["person"])
 
 
 def create_skill():
-    return FaceRecService()
+    return FaceRecognition()

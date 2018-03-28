@@ -1,1 +1,5 @@
+numpy
+scipy
+scikit-image
+dlib
 face_recognition
