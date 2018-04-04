@@ -1,3 +1,41 @@
+
+
+# The requirements.sh is an advanced mechanism and should rarely be needed.
+# Be aware that it won't run with root permissions and 'sudo' won't work
+# in most cases.
+
+#detect distribution using lsb_release (may be replaced parsing /etc/*release)
+dist=$(lsb_release -d |awk '{print$2}')
+
+dependencies=( build-essential cmake libgtk-3-dev libboost-all-dev )
+
+#setting dependencies and package manager in relation to the distribution
+if [ "$dist"  == "Arch"  ]; then
+    pm="pacman -S"
+elif [ "$dist" ==  "Ubuntu" ] || [ "$dist" == "KDE" ] || [ "$dist" == "Debian" ]; then
+    pm="apt install"
+fi
+
+
+if [ "$dist" == "Raspbian" ]; then
+    # installing dependencies without sudo
+    msm install https://github.com/JarbasAl/skill-camera
+    for dep in "${dependencies[@]}"
+    do
+        pkcon install $dep
+    done
+elif [ "$dist" != "Raspbian" ]; then
+    # installing dependencies
+    for dep in "${dependencies[@]}"
+    do
+        sudo $pm $dep
+    done
+
+    # camera skill is also needed
+    sudo msm install https://github.com/JarbasAl/skill-camera
+fi
+
+# compile dlib
 rundir=$(pwd)
 if ! git clone https://github.com/davisking/dlib.git ; then
   echo "Unable to clone Dlib!"
