@@ -1,3 +1,5 @@
+
+
 # The requirements.sh is an advanced mechanism and should rarely be needed.
 # Be aware that it won't run with root permissions and 'sudo' won't work
 # in most cases.
@@ -12,31 +14,41 @@ if [ "$dist"  == "Arch"  ]; then
     pm="pacman -S"
 elif [ "$dist" ==  "Ubuntu" ] || [ "$dist" == "KDE" ] || [ "$dist" == "Debian" ]; then
     pm="apt install"
-elif [ "$dist" == "Raspbian" ]; then
-    # Can't do 'sudo' with standard MSM install on a Mark 1 or Picroft,
-    # use pkcon instead which doesn't need sudo
+fi
+
+
+if [ "$dist" == "Raspbian" ]; then
+    # installing dependencies without sudo
     msm install https://github.com/JarbasAl/skill-camera
     for dep in "${dependencies[@]}"
     do
         pkcon install $dep
     done
-    exit
+elif [ "$dist" != "Raspbian" ]; then
+    # installing dependencies
+    for dep in "${dependencies[@]}"
+    do
+        sudo $pm $dep
+    done
+
+    # camera skill is also needed
+    sudo msm install https://github.com/JarbasAl/skill-camera
 fi
 
-
-
-# installing dependencies
-for dep in "${dependencies[@]}"
-do
-    sudo $pm $dep
-done
-
-# camera skill is also needed
-
-sudo msm install https://github.com/JarbasAl/skill-camera
-
-#git clone https://github.com/davisking/dlib.git
-#cd dlib
-#mkdir build; cd build; cmake .. -DDLIB_USE_CUDA=0 -DUSE_AVX_INSTRUCTIONS=1; cmake --build .
-#cd ..
-#python setup.py install --no USE_AVX_INSTRUCTIONS --no DLIB_USE_CUDA
+# compile dlib
+rundir=$(pwd)
+if ! git clone https://github.com/davisking/dlib.git ; then
+  echo "Unable to clone Dlib!"
+  exit 4 
+fi
+cd dlib
+if grep -q avx /proc/cpuinfo ; then
+  mkdir build; cd build; cmake .. -DDLIB_USE_CUDA=0 -DUSE_AVX_INSTRUCTIONS=1; cmake --build .
+else
+  mkdir build; cd build; cmake .. -DDLIB_USE_CUDA=0 ; cmake --build .
+fi  
+cd ${rundir}/dlib
+if ! python setup.py install --no USE_AVX_INSTRUCTIONS --no DLIB_USE_CUDA ; then
+  echo "Unable to install python Dlib!" 
+  exit 16
+fi
