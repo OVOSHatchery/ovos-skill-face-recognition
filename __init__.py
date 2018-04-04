@@ -1,32 +1,74 @@
 import face_recognition
-from os import remove
-from os.path import join, dirname
+import cv2
+from os import remove, makedirs
+from os.path import join, dirname, expanduser, exists
 from adapt.intent import IntentBuilder
 from mycroft.skills.core import MycroftSkill, intent_handler
 from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 import pickle
-from shared_camera import Camera
+from shared_camera import CameraFeed
+import time
+from threading import Thread
 
 __author__ = 'jarbas'
 
 
 class FaceRecognition(MycroftSkill):
-
     def __init__(self):
-        super(FaceRecognition, self).__init__(name="FaceRecogSkill")
-        self.reload_skill = False
-        # TODO use other dir and allow reload
+        super(FaceRecognition, self).__init__()
+        if "model_path" not in self.settings:
+            self.settings["model_path"] = expanduser(
+                "~/.face_recognition/face_encodings.fr")
+
+        if "sensitivity" not in self.settings:
+            self.settings["sensitivity"] = 0.5
+
+        if "detect_interval" not in self.settings:
+            self.settings["detect_interval"] = 1
+
+        if "detect_timeout" not in self.settings:
+            self.settings["detect_timeout"] = 10
+
+        if "scan_faces" not in self.settings:
+            self.settings["scan_faces"] = True
+
+        if "cascade" not in self.settings:
+            self.settings["cascade"] = join(dirname(__file__),
+                                            'haarcascade_frontalface_alt2.xml')
+
+        if dirname(__file__) in self.settings["model_path"]:
+            self.reload_skill = False
+        if not exists(self.settings["model_path"].replace(
+                "face_encodings.fr", "")):
+            makedirs(self.settings["model_path"].replace(
+                "face_encodings.fr", ""))
+
+        self.cascade = cv2.CascadeClassifier(self.settings["cascade"])
         self.known_faces = {}
-        # TODO use skill settings
-        self.model = join(dirname(dirname(__file__)), "encodings.fr")
-        self.sensitivity = 0.5
+
         self.load_encodings()
+
+        self.vision = None
+        self.last_detection = 0
+        self.recognize = False
+        self.detect_thread = Thread(target=self.face_detect_loop)
+        self.detect_thread.setDaemon(True)
+        self.detect_thread.start()
+
+        self.detect_timer_thread = Thread(target=self.face_timer)
+        self.detect_timer_thread.setDaemon(True)
+        self.detect_timer_thread.start()
+
+        self.camera = CameraFeed()
         LOG.info("Local Face recognition engine started")
-        self.camera = Camera()
+
+    def get_feed(self):
+        return self.camera.get().copy()
 
     def initialize(self):
-        self.add_event("face_recognition_request", self.handle_recognition_request)
+        self.add_event("face_recognition_request",
+                       self.handle_recognition_request)
 
     def get_encodings(self, picture_path):
         # Load the image file
@@ -63,7 +105,7 @@ class FaceRecognition(MycroftSkill):
                     score = 1 - face_distance
                     if top_score < score:
                         top_score = score
-                        if score > self.sensitivity:
+                        if score > self.settings["sensitivity"]:
                             person = name
                             recognized = True
                     predictions[name] = score
@@ -82,10 +124,10 @@ class FaceRecognition(MycroftSkill):
 
     def load_encodings(self):
         try:
-            with open(self.model, "r") as f:
+            with open(self.settings["model_path"], "r") as f:
                 self.known_faces = pickle.load(f)
         except Exception as e:
-            LOG.warning(e)
+            LOG.warning(str(e))
 
     def train_user(self, user, picture_path):
         if user in self.known_faces.keys():
@@ -97,13 +139,13 @@ class FaceRecognition(MycroftSkill):
                    "user": user}
             try:
                 self.known_faces[user] = self.get_encodings(picture_path)
-                with open(self.model, "w") as f:
+                with open(self.settings["model_path"], "w") as f:
                     pickle.dump(self.known_faces, f)
             except Exception as e:
                 res = {"success": False,
                        "error": "could not save face encodings",
                        "exception": str(e)}
-        remove(picture_path)
+
         return res
 
     def handle_recognition_request(self, message):
@@ -114,16 +156,14 @@ class FaceRecognition(MycroftSkill):
                                   {"result": result}))
 
     @intent_handler(IntentBuilder("recognize_face")
-                    .require("recognize_my_face.voc"))
+                    .require("recognize_my_face"))
     def handle_recognize_my_face(self, message):
-        frame = self.camera.get()
+        frame = self.get_feed()
         if frame is None:
             self.speak_dialog("camera.error")
         else:
-            # TODO use filesystem access instead
-            pic = join(dirname(__file__), "tmp.jpg")
-            with open(pic, "wb") as f:
-                f.write(frame)
+            pic = expanduser("~/tmp_face.jpeg")
+            cv2.imwrite(pic, frame)
             result = self.recognize_encodings(pic)
             if not result["face_found_in_image"]:
                 self.speak_dialog("face.error")
@@ -133,6 +173,54 @@ class FaceRecognition(MycroftSkill):
                     self.train_user(person, pic)
             else:
                 self.speak(result["person"])
+            remove(pic)
+
+    def detect_faces(self):
+        """ searches webcam for faces, returns bounding boxes """
+        self.vision = self.get_feed()
+        gray = cv2.cvtColor(self.vision, cv2.COLOR_BGR2GRAY)
+        faces = self.cascade.detectMultiScale(gray, 1.3, 5)
+        return faces
+
+    def recognize_faces(self, faces):
+        """ recognizes detected faces, notify of user arrival """
+        if self.recognize:
+            for (x, y, w, h) in faces:
+                roi_color = self.vision[y:y + h, x:x + w]
+                pic = expanduser("~/tmp.jpg")
+                cv2.imwrite(pic, roi_color)
+                result = self.recognize_encodings(pic)
+                if not result["face_found_in_image"]:
+                    LOG.error("face recognition requested in non face picture")
+                    continue
+                self.emitter.emit(Message("user_arrival.face", result))
+
+                if result["recognized"]:
+                    LOG.info("stopping face recognition")
+                    self.recognize = False
+
+    def face_timer(self):
+        while True:
+            if not self.recognize and time.time() - self.last_detection > \
+                    self.settings["detect_timeout"]:
+                self.recognize = True
+                LOG.info("face detect timeout, enabling face recognition")
+            time.sleep(1)
+
+    def face_detect_loop(self):
+        while True:
+            time.sleep(self.settings["detect_interval"])
+            if self.settings["scan_faces"]:
+                faces = self.detect_faces()
+                if len(faces):
+                    LOG.info("detected faces: " + str(len(faces)))
+                    self.last_detection = time.time()
+                    self.recognize_faces(faces)
+
+    def shutdown(self):
+        super(FaceRecognition, self).shutdown()
+        self.detect_timer_thread.join(0)
+        self.detect_thread.join(0)
 
 
 def create_skill():
