@@ -10,6 +10,7 @@ import pickle
 from shared_camera import Camera
 import time
 from threading import Thread
+from mycroft.util.parse import match_one
 
 __author__ = 'jarbas'
 
@@ -17,6 +18,7 @@ __author__ = 'jarbas'
 class FaceRecognition(MycroftSkill):
     def __init__(self):
         super(FaceRecognition, self).__init__()
+        self.last_user = "unknown"
         if "model_path" not in self.settings:
             self.settings["model_path"] = expanduser(
                 "~/.face_recognition/face_encodings.fr")
@@ -33,9 +35,21 @@ class FaceRecognition(MycroftSkill):
         if "scan_faces" not in self.settings:
             self.settings["scan_faces"] = True
 
+        if "hello_on_face" not in self.settings:
+            self.settings["hello_on_face"] = True
+
+        if "auto_train" not in self.settings:
+            self.settings["auto_train"] = True
+
+        if "goodbye_on_face" not in self.settings:
+            self.settings["goodbye_on_face"] = True
+
         if "cascade" not in self.settings:
             self.settings["cascade"] = join(dirname(__file__),
                                             'haarcascade_frontalface_alt2.xml')
+
+        if "unknown_count" not in self.settings:
+            self.settings["unknown_count"] = 0
 
         if dirname(__file__) in self.settings["model_path"]:
             self.reload_skill = False
@@ -44,14 +58,17 @@ class FaceRecognition(MycroftSkill):
             makedirs(self.settings["model_path"].replace(
                 "face_encodings.fr", ""))
 
-        self.cascade = cv2.CascadeClassifier(self.settings["cascade"])
-        self.known_faces = {}
-
-        self.load_encodings()
-
         self.vision = None
         self.last_detection = 0
         self.recognize = False
+        self.known_faces = {}
+
+    def initialize(self):
+        self.camera = Camera()
+        self.cascade = cv2.CascadeClassifier(self.settings["cascade"])
+
+        self.load_encodings()
+
         self.detect_thread = Thread(target=self.face_detect_loop)
         self.detect_thread.setDaemon(True)
         self.detect_thread.start()
@@ -60,15 +77,55 @@ class FaceRecognition(MycroftSkill):
         self.detect_timer_thread.setDaemon(True)
         self.detect_timer_thread.start()
 
-        self.camera = Camera()
         LOG.info("Local Face recognition engine started")
 
-    def get_feed(self):
-        return self.camera.get().copy()
-
-    def initialize(self):
+        self.add_event("user_arrival.face", self.handle_arrival)
+        self.add_event("user_departure.face", self.handle_departure)
         self.add_event("face_recognition_request",
                        self.handle_recognition_request)
+
+    def handle_departure(self, message):
+        if self.settings["goodbye_on_face"]:
+            name = message.data["person"]
+            # TODO dialog file
+            self.speak("goodbye " + name)
+
+    def handle_arrival(self, message):
+        name = message.data["person"]
+        if name in ["None", "unknown"]:
+            self.settings["unknown_count"] += 1
+            name = "unknown face number " + str(self.settings[
+                                                    "unknown_count"])
+
+        if self.settings["hello_on_face"]:
+            # TODO dialog file
+            self.speak("hello " + name)
+
+        self.set_context("arrival_trigger")
+        # auto train
+        if self.vision is None:
+            LOG.warning("camera feed error")
+        elif self.settings["auto_train"]:
+            pic = expanduser("~/tmp_face.jpeg")
+            cv2.imwrite(pic, self.vision)
+            result = self.recognize_encodings(pic)
+            if not result["face_found_in_image"]:
+                LOG.debug("possible false face detection")
+            elif not result["recognized"]:
+                person = self.get_response("who_are_you")
+                if person:
+                    self.last_user = person
+                    self.train_user(person, pic)
+                else:
+                    self.last_user = name
+                    self.train_user(name, pic)
+            remove(pic)
+
+    def get_feed(self):
+        try:
+            return self.camera.get().copy()
+        except:
+            return None
 
     def get_encodings(self, picture_path):
         # Load the image file
@@ -155,6 +212,26 @@ class FaceRecognition(MycroftSkill):
         self.emitter.emit(Message("face_recognition_result",
                                   {"result": result}))
 
+    @intent_handler(IntentBuilder("correct_name")
+                    .require("my_name_is").require("arrival_trigger"))
+    def handle_name_correction(self, message):
+        name = message.utterance_remainder()
+        if "not" in name:
+            name = self.get_response("state your name")
+            if not name:
+                # TODO use dialog
+                self.speak("try again, i could not understand")
+                return
+        self.known_faces[name] = self.known_faces[self.last_user]
+        self.known_faces.pop(self.last_user)
+        self.last_user = name
+        self.speak("i will now call you " + name)
+        try:
+            with open(self.settings["model_path"], "w") as f:
+                pickle.dump(self.known_faces, f)
+        except Exception as e:
+            LOG.error("could not save face encodings: " + str(e))
+
     @intent_handler(IntentBuilder("recognize_face")
                     .require("recognize_my_face"))
     def handle_recognize_my_face(self, message):
@@ -171,8 +248,10 @@ class FaceRecognition(MycroftSkill):
                 person = self.get_response("who_are_you")
                 if person:
                     self.train_user(person, pic)
+                    self.set_context("arrival_trigger")
             else:
                 self.speak(result["person"])
+                self.set_context("arrival_trigger")
             remove(pic)
 
     def detect_faces(self):
@@ -193,11 +272,12 @@ class FaceRecognition(MycroftSkill):
                 if not result["face_found_in_image"]:
                     LOG.error("face recognition requested in non face picture")
                     continue
-                self.emitter.emit(Message("user_arrival.face", result))
+                self.last_user = result["person"]
+                self.emitter.emit(Message("user_arrival.face",
+                                          {"person": self.last_user}))
 
-                if result["recognized"]:
-                    LOG.info("stopping face recognition")
-                    self.recognize = False
+                LOG.info("stopping face recognition")
+                self.recognize = False
 
     def face_timer(self):
         while True:
@@ -205,6 +285,8 @@ class FaceRecognition(MycroftSkill):
                     self.settings["detect_timeout"]:
                 self.recognize = True
                 LOG.info("face detect timeout, enabling face recognition")
+                self.emitter.emit(Message("user_departure.face",
+                                          {"person": self.last_user}))
             time.sleep(1)
 
     def face_detect_loop(self):
