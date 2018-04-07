@@ -216,11 +216,12 @@ class FaceRecognition(MycroftSkill):
                     .require("my_name_is").require("arrival_trigger"))
     def handle_name_correction(self, message):
         name = message.utterance_remainder()
-        if "not" in name:
-            name = self.get_response("state your name")
+        if "not " in name:
+            name = self.get_response("who_are_you")
             if not name:
                 # TODO use dialog
-                self.speak("try again, i could not understand")
+                self.set_context("arrival_trigger")
+                self.speak("say my name is . your name")
                 return
         self.known_faces[name] = self.known_faces[self.last_user]
         self.known_faces.pop(self.last_user)
