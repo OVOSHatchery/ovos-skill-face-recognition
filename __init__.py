@@ -7,7 +7,7 @@ from mycroft.skills.core import MycroftSkill, intent_handler
 from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 import pickle
-from shared_camera import CameraFeed
+from shared_camera import Camera
 import time
 from threading import Thread
 
@@ -60,7 +60,7 @@ class FaceRecognition(MycroftSkill):
         self.detect_timer_thread.setDaemon(True)
         self.detect_timer_thread.start()
 
-        self.camera = CameraFeed()
+        self.camera = Camera()
         LOG.info("Local Face recognition engine started")
 
     def get_feed(self):

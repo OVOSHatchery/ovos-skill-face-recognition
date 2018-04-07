@@ -3,3 +3,4 @@ scipy
 scikit-image
 dlib
 face_recognition
+shared_camera>=0.6
