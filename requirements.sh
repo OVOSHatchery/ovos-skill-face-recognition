@@ -19,7 +19,6 @@ fi
 
 if [ "$dist" == "Raspbian" ]; then
     # installing dependencies without sudo
-    msm install https://github.com/JarbasAl/skill-camera
     for dep in "${dependencies[@]}"
     do
         pkcon install $dep
@@ -30,16 +29,13 @@ elif [ "$dist" != "Raspbian" ]; then
     do
         sudo $pm $dep
     done
-
-    # camera skill is also needed
-    sudo msm install https://github.com/JarbasAl/skill-camera
 fi
 
 # compile dlib
 rundir=$(pwd)
 if ! git clone https://github.com/davisking/dlib.git ; then
   echo "Unable to clone Dlib!"
-  exit 4 
+  exit 0
 fi
 cd dlib
 if grep -q avx /proc/cpuinfo ; then
@@ -50,5 +46,7 @@ fi
 cd ${rundir}/dlib
 if ! python setup.py install --no USE_AVX_INSTRUCTIONS --no DLIB_USE_CUDA ; then
   echo "Unable to install python Dlib!" 
-  exit 16
+  exit 0
 fi
+
+exit 0
