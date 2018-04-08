@@ -9,8 +9,8 @@ from mycroft.util.log import LOG
 import pickle
 from shared_camera import Camera
 import time
+import json
 from threading import Thread
-from mycroft.util.parse import match_one
 
 __author__ = 'jarbas'
 
@@ -62,6 +62,105 @@ class FaceRecognition(MycroftSkill):
         self.last_detection = 0
         self.recognize = False
         self.known_faces = {}
+        self.create_settings_meta()
+
+    def create_settings_meta(self):
+        meta = {
+            "name": "Face Recognition Skill",
+            "skillMetadata": {
+                "sections": [
+                    {
+                        "name": "Model",
+                        "fields": [
+                            {
+                                "type": "label",
+                                "label": "This is where your personal face "
+                                         "encodings model is saved"
+                            },
+                            {
+                                "name": "model_path",
+                                "type": "text",
+                                "label": "model_path",
+                                "value": "~/.face_recognition/face_encodings.fr"
+                            },
+                            {
+                                "type": "label",
+                                "label": "Threshold for considering faces "
+                                         "unknown"
+                            },
+                            {
+                                "name": "sensitivity",
+                                "type": "number",
+                                "label": "sensitivity",
+                                "placeholder": "0.5",
+                                "value": "0.5"
+                            },
+                            {
+                                "type": "label",
+                                "label": "Haar cascade for face detection"
+                            },
+                            {
+                                "name": "cascade",
+                                "type": "text",
+                                "label": "cascade",
+                                "value": self.settings["cascade"]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Configuration",
+                        "fields": [
+                            {
+                                "type": "checkbox",
+                                "name": "auto_train",
+                                "label": "Automatically add new faces to the model?",
+                                "value": "true"
+                            },
+                            {
+                                "type": "checkbox",
+                                "name": "hello_on_face",
+                                "label": "say hello on face departure",
+                                "value": "true"
+                            },
+                            {
+                                "type": "checkbox",
+                                "name": "goodbye_on_face",
+                                "label": "say goodbye on face departure",
+                                "value": "true"
+                            },
+                            {
+                                "type": "label",
+                                "label": "Seconds between searching for faces"
+                            },
+                            {
+                                "name": "detect_interval",
+                                "type": "number",
+                                "label": "detect_interval",
+                                "placeholder": "1",
+                                "value": "1"
+                            },
+                            {
+                                "type": "label",
+                                "label": "Seconds without finding a face "
+                                         "needed to consider user gone"
+                            },
+                            {
+                                "name": "detect_timeout",
+                                "type": "number",
+                                "label": "detect_timeout",
+                                "placeholder": "10",
+                                "value": "10"
+                            }
+                        ]
+                    }
+
+                ]
+            }
+        }
+        meta_path = join(dirname(__file__), 'settingsmeta.json')
+        if not exists(meta_path):
+            with open(meta_path, 'w') as fp:
+                json.dump(meta, fp)
 
     def initialize(self):
         self.camera = Camera()

@@ -20,7 +20,6 @@ recognize user by face
 
 ## TODO
 
-- settingsmeta.json
 - test install scripts
 - optimize raspberry pi install
 
