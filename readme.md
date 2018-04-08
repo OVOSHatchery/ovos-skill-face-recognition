@@ -4,10 +4,23 @@ recognize user by face
 
 ## Description
 
-- on face detect - emits "user_detection.face" messages
-- on face arrival - emits "user_arrival.face" and "user_departure.face" messages
-- listens for face recognition request messages "face_recognition.request"
-- listens for face recognition train request messages "face_recognition_train.request"
+- on face detect
+
+        "user.detected", {"method": "face"}
+
+- on face arrival
+
+        "user.arrived", {"method": "face"}
+        "user_departed", {"method": "face"}
+
+- listens for face recognition request
+
+        "face.recognize", {"file": "path/to/face.jpg"}
+
+- listens for face recognition train
+
+        "face.train", {"file": "path/to/face.jpg", "user": "jon do"}
+
 - auto train new users faces
 - automatic greetings - "Hello Joe", "Goodbye Joe"
 - fully configurable

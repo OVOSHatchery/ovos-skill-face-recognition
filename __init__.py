@@ -178,21 +178,25 @@ class FaceRecognition(MycroftSkill):
 
         LOG.info("Local Face recognition engine started")
 
-        self.add_event("user_arrival.face", self.handle_arrival)
-        self.add_event("user_departure.face", self.handle_departure)
-        self.add_event("face_recognition.request",
+        self.add_event("user.arrived", self.handle_arrival)
+        self.add_event("user.departed", self.handle_departure)
+        self.add_event("face.recognize",
                        self.handle_recognition_request)
-        self.add_event("face_recognition_train.request",
+        self.add_event("face.train",
                        self.handle_train_request)
 
     def handle_departure(self, message):
+        if message.data["method"] != "face":
+            return
         if self.settings["goodbye_on_face"]:
-            name = message.data["person"]
+            name = message.data["user"]
             # TODO dialog file
             self.speak("goodbye " + name)
 
     def handle_arrival(self, message):
-        name = message.data["person"]
+        if message.data["method"] != "face":
+            return
+        name = message.data["user"]
         if name in ["None", "unknown"]:
             self.settings["unknown_count"] += 1
             name = "unknown face number " + str(self.settings[
@@ -278,6 +282,8 @@ class FaceRecognition(MycroftSkill):
         }
         if not len(known_encodings.keys()):
             result["error"] = "no known users available"
+        else:
+            self.emitter.emit(Message("face.recognized", result))
         return result
 
     def load_encodings(self):
@@ -304,22 +310,22 @@ class FaceRecognition(MycroftSkill):
                        "error": "could not save face encodings",
                        "exception": str(e)}
 
+        # emit result to internal bus
+        self.emitter.emit(Message("face.trained",
+                                  res))
+
         return res
 
     def handle_recognition_request(self, message):
         face = message.data.get("file")
-        result = self.recognize_encodings(face)
+        self.recognize_encodings(face)
         # emit result to internal bus
-        self.emitter.emit(Message("face_recognition.result",
-                                  {"result": result}))
 
     def handle_train_request(self, message):
         face = message.data.get("file")
         user = message.data.get("user")
-        result = self.train_user(user, face)
-        # emit result to internal bus
-        self.emitter.emit(Message("face_recognition_train.result",
-                                  {"result": result}))
+        self.train_user(user, face)
+
 
     @intent_handler(IntentBuilder("correct_name")
                     .require("my_name_is").require("arrival_trigger"))
@@ -383,8 +389,9 @@ class FaceRecognition(MycroftSkill):
                     LOG.error("face recognition requested in non face picture")
                     continue
                 self.last_user = result["person"]
-                self.emitter.emit(Message("user_arrival.face",
-                                          {"person": self.last_user}))
+                self.emitter.emit(Message("user.arrived",
+                                          {"method": "face",
+                                           "user": self.last_user}))
 
                 LOG.info("stopping face recognition")
                 self.recognize = False
@@ -395,8 +402,9 @@ class FaceRecognition(MycroftSkill):
                     self.settings["detect_timeout"]:
                 self.recognize = True
                 LOG.info("face detect timeout, enabling face recognition")
-                self.emitter.emit(Message("user_departure.face",
-                                          {"person": self.last_user}))
+                self.emitter.emit(Message("user.departed",
+                                          {"method": "face",
+                                           "user": self.last_user}))
             time.sleep(1)
 
     def face_detect_loop(self):
@@ -406,8 +414,9 @@ class FaceRecognition(MycroftSkill):
                 faces = self.detect_faces()
                 if len(faces):
                     self.last_detection = time.time()
-                    self.emitter.emit(Message("user_detection.face",
-                                              {"timestamp": self.last_detection,
+                    self.emitter.emit(Message("user.detected",
+                                              {"method": "face",
+                                               "timestamp": self.last_detection,
                                                "number": len(faces)}))
                     self.recognize_faces(faces)
 
