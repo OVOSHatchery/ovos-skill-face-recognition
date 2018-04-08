@@ -81,8 +81,10 @@ class FaceRecognition(MycroftSkill):
 
         self.add_event("user_arrival.face", self.handle_arrival)
         self.add_event("user_departure.face", self.handle_departure)
-        self.add_event("face_recognition_request",
+        self.add_event("face_recognition.request",
                        self.handle_recognition_request)
+        self.add_event("face_recognition_train.request",
+                       self.handle_train_request)
 
     def handle_departure(self, message):
         if self.settings["goodbye_on_face"]:
@@ -209,7 +211,15 @@ class FaceRecognition(MycroftSkill):
         face = message.data.get("file")
         result = self.recognize_encodings(face)
         # emit result to internal bus
-        self.emitter.emit(Message("face_recognition_result",
+        self.emitter.emit(Message("face_recognition.result",
+                                  {"result": result}))
+
+    def handle_train_request(self, message):
+        face = message.data.get("file")
+        user = message.data.get("user")
+        result = self.train_user(user, face)
+        # emit result to internal bus
+        self.emitter.emit(Message("face_recognition_train.result",
                                   {"result": result}))
 
     @intent_handler(IntentBuilder("correct_name")
@@ -296,8 +306,10 @@ class FaceRecognition(MycroftSkill):
             if self.settings["scan_faces"]:
                 faces = self.detect_faces()
                 if len(faces):
-                    LOG.info("detected faces: " + str(len(faces)))
                     self.last_detection = time.time()
+                    self.emitter.emit(Message("user_detection.face",
+                                              {"timestamp": self.last_detection,
+                                               "number": len(faces)}))
                     self.recognize_faces(faces)
 
     def shutdown(self):
