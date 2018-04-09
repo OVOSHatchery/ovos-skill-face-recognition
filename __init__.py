@@ -163,7 +163,11 @@ class FaceRecognition(MycroftSkill):
                 json.dump(meta, fp)
 
     def initialize(self):
-        self.camera = Camera()
+
+        def notify(text):
+            self.emitter.emit(Message(text))
+
+        self.camera = Camera(callback=notify)
         self.cascade = cv2.CascadeClassifier(self.settings["cascade"])
 
         self.load_encodings()
@@ -325,7 +329,6 @@ class FaceRecognition(MycroftSkill):
         face = message.data.get("file")
         user = message.data.get("user")
         self.train_user(user, face)
-
 
     @intent_handler(IntentBuilder("correct_name")
                     .require("my_name_is").require("arrival_trigger"))
