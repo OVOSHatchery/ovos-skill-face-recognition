@@ -90,7 +90,7 @@ class FaceRecognition(MycroftSkill):
                             },
                             {
                                 "name": "sensitivity",
-                                "type": "number",
+                                "type": "text",
                                 "label": "sensitivity",
                                 "placeholder": "0.5",
                                 "value": "0.5"
@@ -271,7 +271,7 @@ class FaceRecognition(MycroftSkill):
                     score = 1 - face_distance
                     if top_score < score:
                         top_score = score
-                        if score > self.settings["sensitivity"]:
+                        if score > float(self.settings["sensitivity"]):
                             person = name
                             recognized = True
                     predictions[name] = score
