@@ -18,10 +18,8 @@ except ImportError:
     from py_msm import MycroftSkillsManager
     msm = MycroftSkillsManager()
     msm.install_by_url("https://github.com/JarbasAl/skill-face-recognition", True)
-    import face_recognition
-    import cv2
-    from shared_camera import Camera
-    del msm
+    # trigger reload
+    msm.reload_skill("skill-face-recognition")
 
 __author__ = 'jarbas'
 
