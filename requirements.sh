@@ -37,8 +37,22 @@ done
 # open cv https://medium.com/@manuganji/installation-of-opencv-numpy-scipy-inside-a-virtualenv-bf4d82220313
 
 user=$(sh -c 'echo $SUDO_USER')
-venv="mycroft"
-cp /usr/lib/python2.7/dist-packages/cv* /home/$user/.virtualenvs/$venv/lib/python2.7/site-packages/
+
+# install mycroft
+DIRECTORY=/home/$user/.virtualenvs/mycroft
+
+if [ -d "$DIRECTORY" ]; then
+  # mycroft venv exists.
+  cp /usr/lib/python2.7/dist-packages/cv* /home/$user/.virtualenvs/mycroft/lib/python2.7/site-packages/
+fi
+
+# install jarbas
+DIRECTORY=/home/$user/.virtualenvs/jarbas
+
+if [ -d "$DIRECTORY" ]; then
+  # mycroft venv exists.
+  cp /usr/lib/python2.7/dist-packages/cv* /home/$user/.virtualenvs/jarbas/lib/python2.7/site-packages/
+fi
 
 # compile dlib
 # installed in pip for now
