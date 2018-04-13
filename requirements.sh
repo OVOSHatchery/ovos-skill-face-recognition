@@ -50,7 +50,7 @@ fi
 DIRECTORY=/home/$user/.virtualenvs/jarbas
 
 if [ -d "$DIRECTORY" ]; then
-  # mycroft venv exists.
+  # jarbas venv exists.
   cp /usr/lib/python2.7/dist-packages/cv* /home/$user/.virtualenvs/jarbas/lib/python2.7/site-packages/
 fi
 
