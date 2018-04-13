@@ -1,3 +1,4 @@
+py_msm
 numpy
 scipy
 scikit-image

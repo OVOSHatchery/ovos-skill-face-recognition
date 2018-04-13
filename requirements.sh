@@ -23,6 +23,10 @@ elif [ "$dist"  == "Fedora" ] || [ "$dist" == "RedHat" ] || [ "$dist" == "CentOS
 fi
 
 
+# try to install py_msm as a failsafe, the skill will try to use it to install itself if things fail, ignore errors
+pip instal py_msm
+sudo pip install py_msm
+
 # installing dependencies
 for dep in "${dependencies[@]}"
 do

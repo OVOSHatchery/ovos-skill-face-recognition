@@ -1,5 +1,3 @@
-import face_recognition
-import cv2
 from os import remove, makedirs
 from os.path import join, dirname, expanduser, exists
 from adapt.intent import IntentBuilder
@@ -7,10 +5,23 @@ from mycroft.skills.core import MycroftSkill, intent_handler
 from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 import pickle
-from shared_camera import Camera
 import time
 import json
 from threading import Thread
+
+try:
+    import face_recognition
+    import cv2
+    from shared_camera import Camera
+except ImportError:
+    # re-install yourself
+    from py_msm import MycroftSkillsManager
+    msm = MycroftSkillsManager()
+    msm.install_by_url("https://github.com/JarbasAl/skill-face-recognition", True)
+    import face_recognition
+    import cv2
+    from shared_camera import Camera
+    del msm
 
 __author__ = 'jarbas'
 
