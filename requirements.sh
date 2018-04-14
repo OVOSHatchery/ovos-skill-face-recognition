@@ -8,18 +8,18 @@ echo $dist
 dependencies=( build-essential cmake libgtk-3-dev libboost-all-dev libfreetype6-dev python-opencv)
 
 # default pm
-pm="apt-get install -y"
+pm="sudo apt-get install -y"
 
 #setting dependencies and package manager in relation to the distribution
 if [ "$dist"  == "Arch"  ]; then
-    pm="pacman -S"
+    pm="sudo pacman -S"
 elif [ "$dist" ==  "Ubuntu" ] || [ "$dist" == "KDE" ] || [ "$dist" == "Debian" ] || [ "$dist" == "antiX" ]; then
-    pm="apt-get install -y"
+    pm="sudo apt-get install -y"
 elif [ "$dist"  == "Raspbian"  ]; then
     pm="pkcon install"
 elif [ "$dist"  == "Fedora" ] || [ "$dist" == "RedHat" ] || [ "$dist" == "CentOS" ]; then
     dependencies=( build-essential cmake libgtk-3-dev libboost-all-dev libfreetype6-dev opencv-python)
-    pm="yum -y install"
+    pm="sudo yum -y install"
 fi
 
 
@@ -54,7 +54,9 @@ if [ -d "$DIRECTORY" ]; then
 
   source "${VIRTUALENV_ROOT}/bin/activate"
 
-  pip instal py_msm
+  pip install py_msm
+
+  deactivate
 
 fi
 
@@ -73,10 +75,13 @@ if [ -d "$DIRECTORY" ]; then
 
   source "${VIRTUALENV_ROOT}/bin/activate"
 
-  pip instal py_msm
+  pip install py_msm
+
+  deactivate
 
 fi
 
+sudo pip install py_msm
 
 # compile dlib
 # installed in pip for now
