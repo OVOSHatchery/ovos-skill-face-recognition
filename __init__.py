@@ -411,7 +411,7 @@ class FaceRecognition(MycroftSkill):
     def face_timer(self):
         while True:
             if not self.recognize and time.time() - self.last_detection > \
-                    self.settings["detect_timeout"]:
+                    self.settings["detect_timeout"] and self.last_detection > 0:
                 self.recognize = True
                 LOG.info("face detect timeout, enabling face recognition")
                 self.emitter.emit(Message("user.departed",
