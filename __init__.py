@@ -1,32 +1,24 @@
-from os import remove, makedirs
-from os.path import join, dirname, expanduser, exists
-from adapt.intent import IntentBuilder
-from mycroft.skills.core import MycroftSkill, intent_handler
-from mycroft.messagebus.message import Message
-from mycroft.util.log import LOG
 import pickle
 import time
-import json
-from threading import Thread
+from os import remove, makedirs
+from os.path import join, dirname, expanduser, exists
+from threading import Event
 
-try:
-    import face_recognition
-    import cv2
-    from shared_camera import Camera
-except ImportError:
-    # re-install yourself
-    from py_msm import MycroftSkillsManager
-    msm = MycroftSkillsManager()
-    msm.install_by_url("https://github.com/JarbasAl/skill-face-recognition", True)
-    # trigger reload
-    msm.reload_skill("skill-face-recognition")
-
-__author__ = 'jarbas'
+import cv2
+import face_recognition
+from ovos_PHAL_rediscamera.server import RedisCameraReader
+from ovos_bus_client.message import Message
+from ovos_utils import create_daemon
+from ovos_utils.log import LOG
+from ovos_workshop.decorators import intent_handler
+from ovos_workshop.intents import IntentBuilder
+from ovos_workshop.skills import OVOSSkill
 
 
-class FaceRecognition(MycroftSkill):
-    def __init__(self):
-        super(FaceRecognition, self).__init__()
+class FaceRecognition(OVOSSkill):
+
+    def initialize(self):
+        self.exit_event = Event()
         self.last_user = "unknown"
         if "model_path" not in self.settings:
             self.settings["model_path"] = expanduser(
@@ -54,8 +46,8 @@ class FaceRecognition(MycroftSkill):
             self.settings["goodbye_on_face"] = True
 
         if "cascade" not in self.settings:
-            self.settings["cascade"] = join(dirname(__file__),
-                                            'haarcascade_frontalface_alt2.xml')
+            self.settings["cascade"] = join(
+                dirname(__file__), 'haarcascade_frontalface_alt2.xml')
 
         if "unknown_count" not in self.settings:
             self.settings["unknown_count"] = 0
@@ -71,132 +63,30 @@ class FaceRecognition(MycroftSkill):
         self.last_detection = 0
         self.recognize = False
         self.known_faces = {}
-        self.create_settings_meta()
 
-    def create_settings_meta(self):
-        meta = {
-            "name": "Face Recognition Skill",
-            "skillMetadata": {
-                "sections": [
-                    {
-                        "name": "Model",
-                        "fields": [
-                            {
-                                "type": "label",
-                                "label": "This is where your personal face "
-                                         "encodings model is saved"
-                            },
-                            {
-                                "name": "model_path",
-                                "type": "text",
-                                "label": "model_path",
-                                "value": "~/.face_recognition/face_encodings.fr"
-                            },
-                            {
-                                "type": "label",
-                                "label": "Threshold for considering faces "
-                                         "unknown"
-                            },
-                            {
-                                "name": "sensitivity",
-                                "type": "text",
-                                "label": "sensitivity",
-                                "placeholder": "0.5",
-                                "value": "0.5"
-                            },
-                            {
-                                "type": "label",
-                                "label": "Haar cascade for face detection"
-                            },
-                            {
-                                "name": "cascade",
-                                "type": "text",
-                                "label": "cascade",
-                                "value": self.settings["cascade"]
-                            }
-                        ]
-                    },
-                    {
-                        "name": "Configuration",
-                        "fields": [
-                            {
-                                "type": "checkbox",
-                                "name": "auto_train",
-                                "label": "Automatically add new faces to the model?",
-                                "value": "true"
-                            },
-                            {
-                                "type": "checkbox",
-                                "name": "hello_on_face",
-                                "label": "say hello on face departure",
-                                "value": "true"
-                            },
-                            {
-                                "type": "checkbox",
-                                "name": "goodbye_on_face",
-                                "label": "say goodbye on face departure",
-                                "value": "true"
-                            },
-                            {
-                                "type": "label",
-                                "label": "Seconds between searching for faces"
-                            },
-                            {
-                                "name": "detect_interval",
-                                "type": "number",
-                                "label": "detect_interval",
-                                "placeholder": "1",
-                                "value": "1"
-                            },
-                            {
-                                "type": "label",
-                                "label": "Seconds without finding a face "
-                                         "needed to consider user gone"
-                            },
-                            {
-                                "name": "detect_timeout",
-                                "type": "number",
-                                "label": "detect_timeout",
-                                "placeholder": "10",
-                                "value": "10"
-                            }
-                        ]
-                    }
+        self.camera = RedisCameraReader(name=self.settings["camera_name"],
+                                        host=self.settings["camera_host"],
+                                        port=self.settings.get("camera_port", 6379),
+                                        username=self.settings.get("camera_username"),
+                                        password=self.settings.get("camera_password"),
+                                        ssl=self.settings.get("camera_ssl"),
+                                        ssl_certfile=self.settings.get("camera_ssl_certfile"),
+                                        ssl_keyfile=self.settings.get("camera_ssl_keyfile"),
+                                        ssl_ca_certs=self.settings.get("camera_ssl_ca_certs"))
 
-                ]
-            }
-        }
-        meta_path = join(dirname(__file__), 'settingsmeta.json')
-        if not exists(meta_path):
-            with open(meta_path, 'w') as fp:
-                json.dump(meta, fp)
-
-    def initialize(self):
-
-        def notify(text):
-            self.emitter.emit(Message(text))
-
-        self.camera = Camera(callback=notify)
         self.cascade = cv2.CascadeClassifier(self.settings["cascade"])
 
         self.load_encodings()
 
-        self.detect_thread = Thread(target=self.face_detect_loop)
-        self.detect_thread.setDaemon(True)
-        self.detect_thread.start()
-
-        self.detect_timer_thread = Thread(target=self.face_timer)
-        self.detect_timer_thread.setDaemon(True)
-        self.detect_timer_thread.start()
+        self.detect_thread = create_daemon(self.face_detect_loop)
+        self.detect_timer_thread = create_daemon(self.face_timer)
 
         LOG.info("Local Face recognition engine started")
 
         self.add_event("user.arrived", self.handle_arrival)
         self.add_event("user.departed", self.handle_departure)
-        self.add_event("face.recognize",
-                       self.handle_recognition_request)
-        self.add_event("face.train",
-                       self.handle_train_request)
+        self.add_event("face.recognize", self.handle_recognition_request)
+        self.add_event("face.train", self.handle_train_request)
 
     def handle_departure(self, message):
         if message.data["method"] != "face":
@@ -212,8 +102,7 @@ class FaceRecognition(MycroftSkill):
         name = message.data["user"]
         if name in ["None", "unknown"]:
             self.settings["unknown_count"] += 1
-            name = "unknown face number " + str(self.settings[
-                                                    "unknown_count"])
+            name = "unknown face number " + str(self.settings["unknown_count"])
 
         if self.settings["hello_on_face"]:
             # TODO dialog file
@@ -296,7 +185,7 @@ class FaceRecognition(MycroftSkill):
         if not len(known_encodings.keys()):
             result["error"] = "no known users available"
         else:
-            self.emitter.emit(Message("face.recognized", result))
+            self.bus.emit(Message("face.recognized", result))
         return result
 
     def load_encodings(self):
@@ -308,24 +197,26 @@ class FaceRecognition(MycroftSkill):
 
     def train_user(self, user, picture_path):
         if user in self.known_faces.keys():
-            res = {"success": True,
-                   "warning": "user already registered",
-                   "user": user}
+            res = {
+                "success": True,
+                "warning": "user already registered",
+                "user": user
+            }
         else:
-            res = {"success": True,
-                   "user": user}
+            res = {"success": True, "user": user}
             try:
                 self.known_faces[user] = self.get_encodings(picture_path)
                 with open(self.settings["model_path"], "w") as f:
                     pickle.dump(self.known_faces, f)
             except Exception as e:
-                res = {"success": False,
-                       "error": "could not save face encodings",
-                       "exception": str(e)}
+                res = {
+                    "success": False,
+                    "error": "could not save face encodings",
+                    "exception": str(e)
+                }
 
         # emit result to internal bus
-        self.emitter.emit(Message("face.trained",
-                                  res))
+        self.bus.emit(Message("face.trained", res))
 
         return res
 
@@ -339,8 +230,9 @@ class FaceRecognition(MycroftSkill):
         user = message.data.get("user")
         self.train_user(user, face)
 
-    @intent_handler(IntentBuilder("correct_name")
-                    .require("my_name_is").require("arrival_trigger"))
+    @intent_handler(
+        IntentBuilder("correct_name").require("my_name_is").require(
+            "arrival_trigger"))
     def handle_name_correction(self, message):
         name = message.utterance_remainder()
         if "not " in name:
@@ -360,8 +252,8 @@ class FaceRecognition(MycroftSkill):
         except Exception as e:
             LOG.error("could not save face encodings: " + str(e))
 
-    @intent_handler(IntentBuilder("recognize_face")
-                    .require("recognize_my_face"))
+    @intent_handler(
+        IntentBuilder("recognize_face").require("recognize_my_face"))
     def handle_recognize_my_face(self, message):
         frame = self.get_feed()
         if frame is None:
@@ -401,42 +293,44 @@ class FaceRecognition(MycroftSkill):
                     LOG.error("face recognition requested in non face picture")
                     continue
                 self.last_user = result["person"]
-                self.emitter.emit(Message("user.arrived",
-                                          {"method": "face",
-                                           "user": self.last_user}))
+                self.bus.emit(
+                    Message("user.arrived", {
+                        "method": "face",
+                        "user": self.last_user
+                    }))
 
                 LOG.info("stopping face recognition")
                 self.recognize = False
 
     def face_timer(self):
-        while True:
+        while not self.exit_event.is_set():
             if not self.recognize and time.time() - self.last_detection > \
                     self.settings["detect_timeout"] and self.last_detection > 0:
                 self.recognize = True
                 LOG.info("face detect timeout, enabling face recognition")
-                self.emitter.emit(Message("user.departed",
-                                          {"method": "face",
-                                           "user": self.last_user}))
+                self.bus.emit(
+                    Message("user.departed", {
+                        "method": "face",
+                        "user": self.last_user
+                    }))
             time.sleep(1)
 
     def face_detect_loop(self):
-        while True:
+        while not self.exit_event.is_set():
             time.sleep(self.settings["detect_interval"])
             if self.settings["scan_faces"]:
                 faces = self.detect_faces()
                 if len(faces):
                     self.last_detection = time.time()
-                    self.emitter.emit(Message("user.detected",
-                                              {"method": "face",
-                                               "timestamp": self.last_detection,
-                                               "number": len(faces)}))
+                    self.bus.emit(
+                        Message(
+                            "user.detected", {
+                                "method": "face",
+                                "timestamp": self.last_detection,
+                                "number": len(faces)
+                            }))
                     self.recognize_faces(faces)
 
     def shutdown(self):
-        super(FaceRecognition, self).shutdown()
-        self.detect_timer_thread.join(0)
-        self.detect_thread.join(0)
-
-
-def create_skill():
-    return FaceRecognition()
+        self.exit_event.set()
+        super().shutdown()
